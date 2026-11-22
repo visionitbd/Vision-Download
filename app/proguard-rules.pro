@@ -1,0 +1,3 @@
+# Keep youtubedl-android and FFmpeg classes if minifyEnabled = true
+-keep class com.yausername.youtubedl_android.** { *; }
+-keep class com.yausername.ffmpeg.** { *; }
