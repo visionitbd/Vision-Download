@@ -1,3 +1,5 @@
-# Keep youtubedl-android and FFmpeg classes if minifyEnabled = true
 -keep class com.yausername.youtubedl_android.** { *; }
--keep class com.yausername.ffmpeg.** { *; }
+-keep class com.fasterxml.jackson.** { *; }
+-dontwarn com.fasterxml.jackson.**
+-dontwarn com.yausername.**
+-dontwarn org.apache.commons.**

@@ -26,29 +26,27 @@ enum class SocialPlatform(val displayName: String) {
 enum class QualityOption(
     val label: String,
     val subtitle: String,
-    val formatSelector: String,
-    val audioOnly: Boolean = false
+    val formatSelector: String
 ) {
     BEST_HD(
         label = "সর্বোচ্চ HD (MP4)",
         subtitle = "সেরা কোয়ালিটি (ওয়াটারমার্ক ছাড়া)",
-        formatSelector = "bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo+bestaudio/best[ext=mp4]/best"
-    ),
-    FULL_HD_1080(
-        label = "Full HD 1080p",
-        subtitle = "YouTube / FB 1080p MP4",
-        formatSelector = "bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=1080]+bestaudio/best[height<=1080]"
+        formatSelector = "best[ext=mp4]/best"
     ),
     HD_720(
         label = "HD 720p",
-        subtitle = "কম ডেটায় পরিষ্কার HD ভিডিও",
-        formatSelector = "bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=720]+bestaudio/best[height<=720]"
+        subtitle = "পরিষ্কার HD ভিডিও",
+        formatSelector = "best[height<=720][ext=mp4]/best[height<=720]/best"
     ),
-    AUDIO_MP3(
-        label = "শুধু অডিও (MP3)",
-        subtitle = "ভিডিও থেকে MP3 অডিও",
-        formatSelector = "bestaudio/best",
-        audioOnly = true
+    SD_480(
+        label = "SD 480p",
+        subtitle = "কম ডেটায় দ্রুত ডাউনলোড",
+        formatSelector = "best[height<=480][ext=mp4]/best[height<=480]/best"
+    ),
+    AUDIO_M4A(
+        label = "শুধু অডিও (M4A)",
+        subtitle = "সরাসরি অডিও ফাইল",
+        formatSelector = "bestaudio[ext=m4a]/bestaudio"
     )
 }
 

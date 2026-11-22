@@ -20,12 +20,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.ContentPaste
-import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.SystemUpdateAlt
-import androidx.compose.material.icons.filled.VideoFile
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -41,6 +37,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -89,17 +86,14 @@ fun DownloaderScreen(viewModel: DownloaderViewModel) {
                     }
                 },
                 actions = {
-                    IconButton(
+                    TextButton(
                         onClick = { viewModel.updateEngine() },
                         enabled = engineReady && !state.isUpdatingEngine
                     ) {
                         if (state.isUpdatingEngine) {
-                            CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                            CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
                         } else {
-                            Icon(
-                                imageVector = Icons.Default.SystemUpdateAlt,
-                                contentDescription = "ইঞ্জিন আপডেট"
-                            )
+                            Text("আপডেট")
                         }
                     }
                 }
@@ -181,10 +175,10 @@ fun DownloaderScreen(viewModel: DownloaderViewModel) {
                                         Icon(Icons.Default.Close, contentDescription = "মুছুন")
                                     }
                                 } else {
-                                    IconButton(onClick = {
+                                    TextButton(onClick = {
                                         clipboard.getText()?.text?.let { viewModel.onUrlChanged(it) }
                                     }) {
-                                        Icon(Icons.Default.ContentPaste, contentDescription = "পেস্ট করুন")
+                                        Text("পেস্ট")
                                     }
                                 }
                             }
@@ -225,7 +219,7 @@ fun DownloaderScreen(viewModel: DownloaderViewModel) {
                                 enabled = engineReady && state.status !is DownloadStatus.Downloading,
                                 modifier = Modifier.weight(1f)
                             ) {
-                                Text("প্রিভিউ দেখুন")
+                                Text("প্রিভিউ")
                             }
 
                             Button(
@@ -233,9 +227,7 @@ fun DownloaderScreen(viewModel: DownloaderViewModel) {
                                 enabled = engineReady && state.status !is DownloadStatus.Downloading,
                                 modifier = Modifier.weight(1.3f)
                             ) {
-                                Icon(Icons.Default.Download, contentDescription = null)
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text("ডাউনলোড")
+                                Text("ডাউনলোড করুন")
                             }
                         }
                     }
@@ -419,12 +411,6 @@ private fun DownloadedRow(item: DownloadedItem, onPlay: () -> Unit) {
                 .padding(12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(
-                imageVector = Icons.Default.VideoFile,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary
-            )
-            Spacer(modifier = Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = item.name,

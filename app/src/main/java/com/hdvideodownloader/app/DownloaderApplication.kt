@@ -2,7 +2,6 @@ package com.hdvideodownloader.app
 
 import android.app.Application
 import android.util.Log
-import com.yausername.ffmpeg.FFmpeg
 import com.yausername.youtubedl_android.YoutubeDL
 import com.yausername.youtubedl_android.YoutubeDLException
 import kotlinx.coroutines.CoroutineScope
@@ -31,9 +30,8 @@ class DownloaderApplication : Application() {
         appScope.launch {
             try {
                 YoutubeDL.getInstance().init(this@DownloaderApplication)
-                FFmpeg.getInstance().init(this@DownloaderApplication)
                 _engineReady.value = true
-                Log.i(TAG, "YoutubeDL and FFmpeg initialized successfully")
+                Log.i(TAG, "YoutubeDL initialized successfully")
             } catch (e: YoutubeDLException) {
                 Log.e(TAG, "Failed to initialize youtubedl-android", e)
                 _initError.value = e.localizedMessage ?: "ইঞ্জিন চালু করা যায়নি"

@@ -52,18 +52,6 @@ class VideoDownloadRepository(private val context: Context) {
             addOption("--no-playlist")
             addOption("--restrict-filenames")
             addOption("-f", quality.formatSelector)
-
-            if (quality.audioOnly) {
-                addOption("-x")
-                addOption("--audio-format", "mp3")
-                addOption("--audio-quality", "0")
-            } else {
-                // Merges separate HD video + audio streams (YouTube/Facebook) into clean MP4
-                // and keeps watermark-free TikTok streams intact
-                addOption("--merge-output-format", "mp4")
-                addOption("--remux-video", "mp4")
-            }
-
             addOption("-o", "${outputDir.absolutePath}/%(title).70s_%(id)s.%(ext)s")
         }
 
@@ -75,7 +63,6 @@ class VideoDownloadRepository(private val context: Context) {
             ?.filter { it.isFile && it.absolutePath !in beforeFiles }
             ?: emptyList()
 
-        // Notify Android Gallery immediately
         if (afterFiles.isNotEmpty()) {
             MediaScannerConnection.scanFile(
                 context,
