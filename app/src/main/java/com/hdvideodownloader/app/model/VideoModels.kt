@@ -37,17 +37,17 @@ enum class QualityOption(
     HD_720(
         label = "HD 720p",
         badgeText = "720p HD • MP4",
-        formatSelector = "best[height<=720][ext=mp4]/best[height<=720]/best"
+        formatSelector = "best[height<=720][ext=mp4]/best[height<=720]/best[ext=mp4]/best"
     ),
     SD_480(
         label = "SD 480p",
         badgeText = "480p • MP4",
-        formatSelector = "best[height<=480][ext=mp4]/best[height<=480]/best"
+        formatSelector = "best[height<=480][ext=mp4]/best[height<=480]/best[ext=mp4]/best"
     ),
     AUDIO_M4A(
         label = "শুধু অডিও (M4A)",
         badgeText = "Audio • M4A",
-        formatSelector = "bestaudio[ext=m4a]/bestaudio",
+        formatSelector = "bestaudio[ext=m4a]/bestaudio/best",
         isAudio = true
     )
 }

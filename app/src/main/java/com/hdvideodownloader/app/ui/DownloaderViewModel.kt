@@ -12,7 +12,9 @@ import com.hdvideodownloader.app.model.SocialPlatform
 import com.hdvideodownloader.app.model.VideoMetadata
 import com.yausername.youtubedl_android.YoutubeDL
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -47,6 +49,9 @@ class DownloaderViewModel(application: Application) : AndroidViewModel(applicati
 
     private var activeProcessId: String? = null
     private var downloadJob: Job? = null
+    private var prefetchJob: Deferred<VideoMetadata?>? = null
+    private var prefetchUrl: String? = null
+    private var prefetchQuality: QualityOption? = null
 
     private val percentRegex = Regex("(\\d+(?:\\.\\d+)?)%")
     private val speedRegex = Regex("at\\s+([0-9.]+[A-Za-z]+/s)")
@@ -67,10 +72,42 @@ class DownloaderViewModel(application: Application) : AndroidViewModel(applicati
                 metadataQuality = if (changed) null else it.metadataQuality
             )
         }
+        if (changed && trimmed.startsWith("http")) {
+            scheduleBackgroundPrefetch(trimmed, _uiState.value.selectedQuality)
+        } else if (trimmed.isEmpty()) {
+            prefetchJob?.cancel()
+            prefetchJob = null
+        }
     }
 
     fun onQualitySelected(quality: QualityOption) {
+        val prev = _uiState.value.selectedQuality
         _uiState.update { it.copy(selectedQuality = quality) }
+        val url = _uiState.value.url.trim()
+        if (prev != quality && url.startsWith("http")) {
+            scheduleBackgroundPrefetch(url, quality)
+        }
+    }
+
+    /**
+     * Quietly pre-fetches video metadata & direct stream URL right after pasting a link,
+     * so tapping "Download" starts streaming almost instantaneously.
+     */
+    private fun scheduleBackgroundPrefetch(url: String, quality: QualityOption) {
+        if (!engineReady.value) return
+        prefetchJob?.cancel()
+        prefetchUrl = url
+        prefetchQuality = quality
+        prefetchJob = viewModelScope.async {
+            delay(350)
+            val result = runCatching { repository.fetchVideoMetadata(url, quality) }.getOrNull()
+            if (result != null && _uiState.value.url.trim() == url) {
+                _uiState.update {
+                    it.copy(metadata = result, metadataQuality = quality)
+                }
+            }
+            result
+        }
     }
 
     fun openPreviewPlayer() {
@@ -112,27 +149,35 @@ class DownloaderViewModel(application: Application) : AndroidViewModel(applicati
         val quality = _uiState.value.selectedQuality
         viewModelScope.launch {
             _uiState.update { it.copy(status = DownloadStatus.FetchingInfo) }
-            runCatching { repository.fetchVideoMetadata(targetUrl, quality) }
-                .onSuccess { info ->
-                    _uiState.update {
-                        it.copy(
-                            metadata = info,
-                            metadataQuality = quality,
-                            status = DownloadStatus.Idle,
-                            playingPreviewUrl = if (autoPlay && !info.streamUrl.isNullOrBlank()) info.streamUrl else it.playingPreviewUrl,
-                            playingPreviewTitle = if (autoPlay && !info.streamUrl.isNullOrBlank()) info.title else it.playingPreviewTitle
-                        )
-                    }
+            val prefetched = if (prefetchUrl == targetUrl && prefetchQuality == quality) {
+                runCatching { prefetchJob?.await() }.getOrNull()
+            } else null
+
+            val result = if (prefetched != null) {
+                Result.success(prefetched)
+            } else {
+                runCatching { repository.fetchVideoMetadata(targetUrl, quality) }
+            }
+
+            result.onSuccess { info ->
+                _uiState.update {
+                    it.copy(
+                        metadata = info,
+                        metadataQuality = quality,
+                        status = DownloadStatus.Idle,
+                        playingPreviewUrl = if (autoPlay && !info.streamUrl.isNullOrBlank()) info.streamUrl else it.playingPreviewUrl,
+                        playingPreviewTitle = if (autoPlay && !info.streamUrl.isNullOrBlank()) info.title else it.playingPreviewTitle
+                    )
                 }
-                .onFailure { err ->
-                    _uiState.update {
-                        it.copy(
-                            status = DownloadStatus.Error(
-                                "ভিডিও তথ্য আনা যায়নি: ${err.localizedMessage ?: "অজানা ত্রুটি"}"
-                            )
+            }.onFailure { err ->
+                _uiState.update {
+                    it.copy(
+                        status = DownloadStatus.Error(
+                            "ভিডিও তথ্য আনা যায়নি: ${err.localizedMessage ?: "অজানা ত্রুটি"}"
                         )
-                    }
+                    )
                 }
+            }
         }
     }
 
@@ -152,11 +197,6 @@ class DownloaderViewModel(application: Application) : AndroidViewModel(applicati
         }
 
         val selectedQuality = _uiState.value.selectedQuality
-        val cachedMeta = _uiState.value.metadata
-        val canUseInstantDirect = cachedMeta != null &&
-            !cachedMeta.streamUrl.isNullOrBlank() &&
-            _uiState.value.metadataQuality == selectedQuality
-
         val processId = "dl_${UUID.randomUUID()}"
         activeProcessId = processId
 
@@ -168,18 +208,27 @@ class DownloaderViewModel(application: Application) : AndroidViewModel(applicati
                         progress = 0f,
                         etaSeconds = 0L,
                         speedText = null,
-                        statusLabel = if (canUseInstantDirect) "ডাউনলোড হচ্ছে" else "লিংক প্রস্তুত হচ্ছে..."
+                        statusLabel = "লিংক প্রস্তুত হচ্ছে..."
                     )
                 )
             }
 
-            // Fast Path: Instant native HTTP download if preview streamUrl is already ready
-            if (canUseInstantDirect && cachedMeta != null) {
+            // 1. Reuse already-cached metadata OR await the in-flight background pre-fetch
+            var readyMeta = _uiState.value.metadata?.takeIf {
+                _uiState.value.metadataQuality == selectedQuality && !it.streamUrl.isNullOrBlank()
+            }
+            if (readyMeta == null && prefetchUrl == targetUrl && prefetchQuality == selectedQuality) {
+                readyMeta = runCatching { prefetchJob?.await() }.getOrNull()
+                    ?.takeIf { !it.streamUrl.isNullOrBlank() }
+            }
+
+            // 2. Fast Path: High-speed native Android HTTP stream (256 KB buffer)
+            if (readyMeta != null && !readyMeta.streamUrl.isNullOrBlank()) {
                 val directResult = runCatching {
                     repository.downloadDirectStream(
-                        streamUrl = cachedMeta.streamUrl!!,
-                        title = cachedMeta.title,
-                        ext = cachedMeta.ext
+                        streamUrl = readyMeta.streamUrl,
+                        title = readyMeta.title,
+                        ext = readyMeta.ext
                     ) { progress, eta, speed ->
                         _uiState.update { state ->
                             state.copy(
@@ -195,19 +244,18 @@ class DownloaderViewModel(application: Application) : AndroidViewModel(applicati
                 }
 
                 if (directResult.isSuccess) {
-                    val savedFile = directResult.getOrNull()
                     activeProcessId = null
-                    finishDownloadSuccess(savedFile?.name)
+                    finishDownloadSuccess(directResult.getOrNull()?.name)
                     return@launch
                 } else if (directResult.exceptionOrNull() is CancellationException) {
                     activeProcessId = null
                     return@launch
                 }
-                // If direct stream failed (e.g. expired URL or special headers), fall back to fast yt-dlp
+                // Direct stream failed (e.g. token/header required); fall back seamlessly to yt-dlp
             }
 
+            // 3. Reliable Fallback: yt-dlp with 8 concurrent fragments
             var highestProgress = 0f
-
             runCatching {
                 repository.downloadVideo(
                     url = targetUrl,

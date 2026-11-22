@@ -5,15 +5,16 @@ import android.media.MediaScannerConnection
 import android.os.Environment
 import com.hdvideodownloader.app.model.DownloadedItem
 import com.hdvideodownloader.app.model.QualityOption
-import com.hdvideodownloader.app.model.SocialPlatform
 import com.hdvideodownloader.app.model.VideoMetadata
 import com.yausername.youtubedl_android.YoutubeDL
 import com.yausername.youtubedl_android.YoutubeDLRequest
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 import java.io.BufferedInputStream
+import java.io.BufferedOutputStream
 import java.io.File
 import java.io.FileOutputStream
 import java.net.HttpURLConnection
@@ -33,23 +34,14 @@ class VideoDownloadRepository(private val context: Context) {
         return appDir
     }
 
-    private fun YoutubeDLRequest.applyFastNetworkOptions(url: String) {
-        addOption("--force-ipv4")
-        addOption("--no-playlist")
-        addOption("--no-warnings")
-        addOption("--socket-timeout", "15")
-        if (SocialPlatform.detect(url) == SocialPlatform.YOUTUBE) {
-            // Avoids slow JS player decryption in mobile Python (saves 15-30s on YouTube)
-            addOption("--extractor-args", "youtube:player_client=android,web")
-        }
-    }
-
     suspend fun fetchVideoMetadata(
         url: String,
         quality: QualityOption
     ): VideoMetadata = withContext(Dispatchers.IO) {
         val request = YoutubeDLRequest(url).apply {
-            applyFastNetworkOptions(url)
+            addOption("--no-playlist")
+            addOption("--no-warnings")
+            addOption("--socket-timeout", "15")
             addOption("-f", quality.formatSelector)
         }
         val info = YoutubeDL.getInstance().getInfo(request)
@@ -64,8 +56,8 @@ class VideoDownloadRepository(private val context: Context) {
     }
 
     /**
-     * Native Android HTTP downloader: starts in <1s when preview streamUrl is already cached,
-     * streaming at full device speed with smooth 0%->100% progress updates.
+     * High-speed native Android HTTP downloader (256 KB buffered stream).
+     * Starts instantly when streamUrl is pre-fetched and streams at full device bandwidth.
      */
     suspend fun downloadDirectStream(
         streamUrl: String,
@@ -85,13 +77,15 @@ class VideoDownloadRepository(private val context: Context) {
         val partFile = File(outputDir, "${finalFile.name}.part")
 
         val conn = (URL(streamUrl).openConnection() as HttpURLConnection).apply {
-            connectTimeout = 12_000
-            readTimeout = 20_000
+            connectTimeout = 15_000
+            readTimeout = 25_000
             instanceFollowRedirects = true
             setRequestProperty(
                 "User-Agent",
                 "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36"
             )
+            setRequestProperty("Accept", "*/*")
+            setRequestProperty("Connection", "keep-alive")
         }
 
         try {
@@ -104,16 +98,16 @@ class VideoDownloadRepository(private val context: Context) {
                 throw IllegalStateException("Unknown content length")
             }
 
-            val buffer = ByteArray(64 * 1024)
+            val buffer = ByteArray(256 * 1024)
             var downloaded = 0L
             val startTime = System.currentTimeMillis()
             var lastEmit = 0L
 
-            BufferedInputStream(conn.inputStream, 64 * 1024).use { input ->
-                FileOutputStream(partFile).use { output ->
+            BufferedInputStream(conn.inputStream, 256 * 1024).use { input ->
+                BufferedOutputStream(FileOutputStream(partFile), 256 * 1024).use { output ->
                     while (true) {
                         if (!currentCoroutineContext().isActive) {
-                            throw kotlinx.coroutines.CancellationException("Cancelled")
+                            throw CancellationException("Cancelled")
                         }
                         val read = input.read(buffer)
                         if (read == -1) break
@@ -121,7 +115,7 @@ class VideoDownloadRepository(private val context: Context) {
                         downloaded += read
 
                         val now = System.currentTimeMillis()
-                        if (now - lastEmit >= 150L || downloaded >= totalBytes) {
+                        if (now - lastEmit >= 120L || downloaded >= totalBytes) {
                             lastEmit = now
                             val pct = (downloaded * 100f / totalBytes).coerceIn(0f, 100f)
                             val elapsedSec = ((now - startTime) / 1000.0).coerceAtLeast(0.1)
@@ -132,6 +126,7 @@ class VideoDownloadRepository(private val context: Context) {
                             onProgress(pct, etaSec, formatSpeed(bytesPerSec))
                         }
                     }
+                    output.flush()
                 }
             }
 
@@ -165,13 +160,15 @@ class VideoDownloadRepository(private val context: Context) {
         val beforeFiles = outputDir.listFiles()?.map { it.absolutePath }?.toSet() ?: emptySet()
 
         val request = YoutubeDLRequest(url).apply {
-            applyFastNetworkOptions(url)
             addOption("--no-mtime")
+            addOption("--no-playlist")
+            addOption("--no-warnings")
             addOption("--restrict-filenames")
             addOption("--newline")
-            addOption("--concurrent-fragments", "4")
+            addOption("--socket-timeout", "15")
+            addOption("--concurrent-fragments", "8")
             addOption("--http-chunk-size", "10M")
-            addOption("--buffer-size", "16K")
+            addOption("--buffer-size", "32K")
             addOption("--retries", "3")
             addOption("--fragment-retries", "3")
             addOption("-f", quality.formatSelector)
