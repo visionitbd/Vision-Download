@@ -11,6 +11,7 @@ import com.hdvideodownloader.app.model.QualityOption
 import com.hdvideodownloader.app.model.SocialPlatform
 import com.hdvideodownloader.app.model.VideoMetadata
 import com.yausername.youtubedl_android.YoutubeDL
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -25,6 +26,7 @@ data class DownloaderUiState(
     val detectedPlatform: SocialPlatform? = null,
     val selectedQuality: QualityOption = QualityOption.BEST_HD,
     val metadata: VideoMetadata? = null,
+    val metadataQuality: QualityOption? = null,
     val status: DownloadStatus = DownloadStatus.Idle,
     val isUpdatingEngine: Boolean = false,
     val engineMessage: String? = null,
@@ -56,11 +58,13 @@ class DownloaderViewModel(application: Application) : AndroidViewModel(applicati
     fun onUrlChanged(newUrl: String) {
         val trimmed = newUrl.trim()
         val platform = if (trimmed.startsWith("http")) SocialPlatform.detect(trimmed) else null
+        val changed = trimmed != _uiState.value.url.trim()
         _uiState.update {
             it.copy(
                 url = newUrl,
                 detectedPlatform = platform,
-                metadata = if (trimmed != it.url.trim()) null else it.metadata
+                metadata = if (changed) null else it.metadata,
+                metadataQuality = if (changed) null else it.metadataQuality
             )
         }
     }
@@ -105,13 +109,15 @@ class DownloaderViewModel(application: Application) : AndroidViewModel(applicati
             return
         }
 
+        val quality = _uiState.value.selectedQuality
         viewModelScope.launch {
             _uiState.update { it.copy(status = DownloadStatus.FetchingInfo) }
-            runCatching { repository.fetchVideoMetadata(targetUrl, _uiState.value.selectedQuality) }
+            runCatching { repository.fetchVideoMetadata(targetUrl, quality) }
                 .onSuccess { info ->
                     _uiState.update {
                         it.copy(
                             metadata = info,
+                            metadataQuality = quality,
                             status = DownloadStatus.Idle,
                             playingPreviewUrl = if (autoPlay && !info.streamUrl.isNullOrBlank()) info.streamUrl else it.playingPreviewUrl,
                             playingPreviewTitle = if (autoPlay && !info.streamUrl.isNullOrBlank()) info.title else it.playingPreviewTitle
@@ -145,21 +151,59 @@ class DownloaderViewModel(application: Application) : AndroidViewModel(applicati
             return
         }
 
+        val selectedQuality = _uiState.value.selectedQuality
+        val cachedMeta = _uiState.value.metadata
+        val canUseInstantDirect = cachedMeta != null &&
+            !cachedMeta.streamUrl.isNullOrBlank() &&
+            _uiState.value.metadataQuality == selectedQuality
+
         val processId = "dl_${UUID.randomUUID()}"
         activeProcessId = processId
 
         downloadJob?.cancel()
         downloadJob = viewModelScope.launch {
-            // Show progress bar immediately upon clicking Download
             _uiState.update {
                 it.copy(
                     status = DownloadStatus.Downloading(
                         progress = 0f,
                         etaSeconds = 0L,
                         speedText = null,
-                        statusLabel = "লিংক প্রস্তুত হচ্ছে..."
+                        statusLabel = if (canUseInstantDirect) "ডাউনলোড হচ্ছে" else "লিংক প্রস্তুত হচ্ছে..."
                     )
                 )
+            }
+
+            // Fast Path: Instant native HTTP download if preview streamUrl is already ready
+            if (canUseInstantDirect && cachedMeta != null) {
+                val directResult = runCatching {
+                    repository.downloadDirectStream(
+                        streamUrl = cachedMeta.streamUrl!!,
+                        title = cachedMeta.title,
+                        ext = cachedMeta.ext
+                    ) { progress, eta, speed ->
+                        _uiState.update { state ->
+                            state.copy(
+                                status = DownloadStatus.Downloading(
+                                    progress = progress,
+                                    etaSeconds = eta,
+                                    speedText = speed,
+                                    statusLabel = "ডাউনলোড হচ্ছে"
+                                )
+                            )
+                        }
+                    }
+                }
+
+                if (directResult.isSuccess) {
+                    val savedFile = directResult.getOrNull()
+                    activeProcessId = null
+                    finishDownloadSuccess(savedFile?.name)
+                    return@launch
+                } else if (directResult.exceptionOrNull() is CancellationException) {
+                    activeProcessId = null
+                    return@launch
+                }
+                // If direct stream failed (e.g. expired URL or special headers), fall back to fast yt-dlp
             }
 
             var highestProgress = 0f
@@ -167,7 +211,7 @@ class DownloaderViewModel(application: Application) : AndroidViewModel(applicati
             runCatching {
                 repository.downloadVideo(
                     url = targetUrl,
-                    quality = _uiState.value.selectedQuality,
+                    quality = selectedQuality,
                     processId = processId
                 ) { progress, eta, line ->
                     val parsedPct = when {
@@ -192,36 +236,41 @@ class DownloaderViewModel(application: Application) : AndroidViewModel(applicati
                 }
             }.onSuccess { files ->
                 activeProcessId = null
-                // Always display 100% cleanly before showing final completion message
-                _uiState.update {
-                    it.copy(
-                        status = DownloadStatus.Downloading(
-                            progress = 100f,
-                            etaSeconds = 0L,
-                            speedText = null,
-                            statusLabel = "ডাউনলোড সম্পন্ন"
-                        )
-                    )
-                }
-                refreshDownloads()
-                delay(600)
-                val msg = if (files.isNotEmpty()) {
-                    "১০০% সম্পন্ন! সেভ হয়েছে: ${files.first().name}"
-                } else {
-                    "১০০% ডাউনলোড সম্পন্ন! Downloads/VisionDownload ফোল্ডার দেখুন।"
-                }
-                _uiState.update { it.copy(status = DownloadStatus.Success(msg, 100f)) }
+                finishDownloadSuccess(files.firstOrNull()?.name)
             }.onFailure { err ->
                 activeProcessId = null
-                _uiState.update {
-                    it.copy(
-                        status = DownloadStatus.Error(
-                            "ডাউনলোড ব্যর্থ হয়েছে: ${err.localizedMessage ?: "লিংকটি প্রাইভেট বা অবৈধ হতে পারে"}"
+                if (err !is CancellationException) {
+                    _uiState.update {
+                        it.copy(
+                            status = DownloadStatus.Error(
+                                "ডাউনলোড ব্যর্থ হয়েছে: ${err.localizedMessage ?: "লিংকটি প্রাইভেট বা অবৈধ হতে পারে"}"
+                            )
                         )
-                    )
+                    }
                 }
             }
         }
+    }
+
+    private suspend fun finishDownloadSuccess(fileName: String?) {
+        _uiState.update {
+            it.copy(
+                status = DownloadStatus.Downloading(
+                    progress = 100f,
+                    etaSeconds = 0L,
+                    speedText = null,
+                    statusLabel = "ডাউনলোড সম্পন্ন"
+                )
+            )
+        }
+        refreshDownloads()
+        delay(500)
+        val msg = if (!fileName.isNullOrBlank()) {
+            "১০০% সম্পন্ন! সেভ হয়েছে: $fileName"
+        } else {
+            "১০০% ডাউনলোড সম্পন্ন! Downloads/VisionDownload ফোল্ডার দেখুন।"
+        }
+        _uiState.update { it.copy(status = DownloadStatus.Success(msg, 100f)) }
     }
 
     fun cancelDownload() {
