@@ -247,8 +247,7 @@ fun DownloaderScreen(viewModel: DownloaderViewModel) {
                             Box(modifier = Modifier.weight(1f)) {
                                 if (state.url.isEmpty()) {
                                     Text(
-                                        text = "YouTube, Facebook বা
-TikTok লিংক",
+                                        text = "YouTube, Facebook বা\nTikTok লিংক",
                                         color = TextSecondary,
                                         fontSize = 15.sp,
                                         lineHeight = 20.sp
