@@ -25,16 +25,22 @@ class VideoDownloadRepository(private val context: Context) {
         return appDir
     }
 
-    suspend fun fetchVideoMetadata(url: String): VideoMetadata = withContext(Dispatchers.IO) {
+    suspend fun fetchVideoMetadata(
+        url: String,
+        quality: QualityOption
+    ): VideoMetadata = withContext(Dispatchers.IO) {
         val request = YoutubeDLRequest(url).apply {
             addOption("--no-playlist")
+            addOption("-f", quality.formatSelector)
         }
         val info = YoutubeDL.getInstance().getInfo(request)
         VideoMetadata(
             title = info.title ?: "Untitled Video",
             uploader = info.uploader,
             durationSec = info.duration,
-            thumbnailUrl = info.thumbnail
+            thumbnailUrl = info.thumbnail,
+            streamUrl = info.url,
+            ext = info.ext
         )
     }
 
@@ -51,6 +57,14 @@ class VideoDownloadRepository(private val context: Context) {
             addOption("--no-mtime")
             addOption("--no-playlist")
             addOption("--restrict-filenames")
+            // Emit every progress tick immediately on a new line
+            addOption("--newline")
+            // Speed optimizations: parallel fragment fetching & chunked HTTP to prevent throttling
+            addOption("--concurrent-fragments", "4")
+            addOption("--http-chunk-size", "10M")
+            addOption("--buffer-size", "16K")
+            addOption("--retries", "5")
+            addOption("--fragment-retries", "5")
             addOption("-f", quality.formatSelector)
             addOption("-o", "${outputDir.absolutePath}/%(title).70s_%(id)s.%(ext)s")
         }
@@ -76,6 +90,10 @@ class VideoDownloadRepository(private val context: Context) {
 
     fun cancelDownload(processId: String) {
         YoutubeDL.getInstance().destroyProcessById(processId)
+    }
+
+    suspend fun deleteFile(file: File): Boolean = withContext(Dispatchers.IO) {
+        runCatching { file.delete() }.getOrDefault(false)
     }
 
     suspend fun updateEngine(): YoutubeDL.UpdateStatus? = withContext(Dispatchers.IO) {

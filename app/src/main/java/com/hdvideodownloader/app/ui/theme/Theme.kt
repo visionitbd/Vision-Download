@@ -1,45 +1,44 @@
 package com.hdvideodownloader.app.ui.theme
 
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 
-private val LightColors = lightColorScheme(
-    primary = Color(0xFF0F766E),
-    onPrimary = Color.White,
-    primaryContainer = Color(0xFFCCFBF1),
-    onPrimaryContainer = Color(0xFF115E59),
-    secondary = Color(0xFF2563EB),
-    onSecondary = Color.White,
-    background = Color(0xFFF8FAFC),
-    surface = Color.White,
-    onSurface = Color(0xFF0F172A),
-    surfaceVariant = Color(0xFFE2E8F0)
-)
+val BgDark = Color(0xFF0C1220)
+val BgCard = Color(0xFF162033)
+val BgCardGlass = Color(0xCC182336)
+val BorderSubtle = Color(0xFF2D3C54)
+val EmeraldGlow = Color(0xFF34E8B0)
+val TealAccent = Color(0xFF22D3A6)
+val TextPrimary = Color(0xFFF8FAFC)
+val TextSecondary = Color(0xFF94A3B8)
 
-private val DarkColors = darkColorScheme(
-    primary = Color(0xFF2DD4BF),
+private val VisionDarkColors = darkColorScheme(
+    primary = EmeraldGlow,
     onPrimary = Color(0xFF042F2E),
     primaryContainer = Color(0xFF134E4A),
     onPrimaryContainer = Color(0xFFCCFBF1),
-    secondary = Color(0xFF60A5FA),
-    onSecondary = Color(0xFF0F172A),
-    background = Color(0xFF0B1120),
-    surface = Color(0xFF111827),
-    onSurface = Color(0xFFF1F5F9),
-    surfaceVariant = Color(0xFF1E293B)
+    secondary = TealAccent,
+    onSecondary = Color(0xFF062825),
+    background = BgDark,
+    onBackground = TextPrimary,
+    surface = BgCard,
+    onSurface = TextPrimary,
+    surfaceVariant = Color(0xFF1E293B),
+    onSurfaceVariant = TextSecondary,
+    outline = BorderSubtle,
+    error = Color(0xFFF87171),
+    errorContainer = Color(0xFF451A1A),
+    onErrorContainer = Color(0xFFFECACA)
 )
 
 @Composable
 fun HDVideoDownloaderTheme(
-    darkTheme: Boolean = isSystemInDarkTheme(),
     content: @Composable () -> Unit
 ) {
     MaterialTheme(
-        colorScheme = if (darkTheme) DarkColors else LightColors,
+        colorScheme = VisionDarkColors,
         content = content
     )
 }

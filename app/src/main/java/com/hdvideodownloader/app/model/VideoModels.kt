@@ -25,28 +25,30 @@ enum class SocialPlatform(val displayName: String) {
 
 enum class QualityOption(
     val label: String,
-    val subtitle: String,
-    val formatSelector: String
+    val badgeText: String,
+    val formatSelector: String,
+    val isAudio: Boolean = false
 ) {
     BEST_HD(
         label = "সর্বোচ্চ HD (MP4)",
-        subtitle = "সেরা কোয়ালিটি (ওয়াটারমার্ক ছাড়া)",
+        badgeText = "HD • MP4",
         formatSelector = "best[ext=mp4]/best"
     ),
     HD_720(
         label = "HD 720p",
-        subtitle = "পরিষ্কার HD ভিডিও",
+        badgeText = "720p HD • MP4",
         formatSelector = "best[height<=720][ext=mp4]/best[height<=720]/best"
     ),
     SD_480(
         label = "SD 480p",
-        subtitle = "কম ডেটায় দ্রুত ডাউনলোড",
+        badgeText = "480p • MP4",
         formatSelector = "best[height<=480][ext=mp4]/best[height<=480]/best"
     ),
     AUDIO_M4A(
         label = "শুধু অডিও (M4A)",
-        subtitle = "সরাসরি অডিও ফাইল",
-        formatSelector = "bestaudio[ext=m4a]/bestaudio"
+        badgeText = "Audio • M4A",
+        formatSelector = "bestaudio[ext=m4a]/bestaudio",
+        isAudio = true
     )
 }
 
@@ -54,7 +56,9 @@ data class VideoMetadata(
     val title: String,
     val uploader: String?,
     val durationSec: Int,
-    val thumbnailUrl: String?
+    val thumbnailUrl: String?,
+    val streamUrl: String?,
+    val ext: String?
 )
 
 data class DownloadedItem(
@@ -67,7 +71,12 @@ data class DownloadedItem(
 sealed interface DownloadStatus {
     data object Idle : DownloadStatus
     data object FetchingInfo : DownloadStatus
-    data class Downloading(val progress: Float, val etaSeconds: Long, val logLine: String) : DownloadStatus
-    data class Success(val message: String) : DownloadStatus
+    data class Downloading(
+        val progress: Float,
+        val etaSeconds: Long,
+        val speedText: String? = null,
+        val statusLabel: String = "ডাউনলোড হচ্ছে"
+    ) : DownloadStatus
+    data class Success(val message: String, val progress: Float = 100f) : DownloadStatus
     data class Error(val message: String) : DownloadStatus
 }

@@ -12,6 +12,7 @@ import com.hdvideodownloader.app.model.SocialPlatform
 import com.hdvideodownloader.app.model.VideoMetadata
 import com.yausername.youtubedl_android.YoutubeDL
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -27,7 +28,9 @@ data class DownloaderUiState(
     val status: DownloadStatus = DownloadStatus.Idle,
     val isUpdatingEngine: Boolean = false,
     val engineMessage: String? = null,
-    val downloads: List<DownloadedItem> = emptyList()
+    val downloads: List<DownloadedItem> = emptyList(),
+    val playingPreviewUrl: String? = null,
+    val playingPreviewTitle: String? = null
 )
 
 class DownloaderViewModel(application: Application) : AndroidViewModel(application) {
@@ -42,6 +45,9 @@ class DownloaderViewModel(application: Application) : AndroidViewModel(applicati
 
     private var activeProcessId: String? = null
     private var downloadJob: Job? = null
+
+    private val percentRegex = Regex("(\\d+(?:\\.\\d+)?)%")
+    private val speedRegex = Regex("at\\s+([0-9.]+[A-Za-z]+/s)")
 
     init {
         refreshDownloads()
@@ -63,7 +69,28 @@ class DownloaderViewModel(application: Application) : AndroidViewModel(applicati
         _uiState.update { it.copy(selectedQuality = quality) }
     }
 
-    fun fetchPreview() {
+    fun openPreviewPlayer() {
+        val meta = _uiState.value.metadata ?: return
+        val streamUrl = meta.streamUrl
+        if (!streamUrl.isNullOrBlank()) {
+            _uiState.update {
+                it.copy(
+                    playingPreviewUrl = streamUrl,
+                    playingPreviewTitle = meta.title
+                )
+            }
+        } else {
+            _uiState.update {
+                it.copy(status = DownloadStatus.Error("এই ভিডিওর সরাসরি প্রিভিউ প্লে সাপোর্ট করছে না, সরাসরি ডাউনলোড করুন।"))
+            }
+        }
+    }
+
+    fun closePreviewPlayer() {
+        _uiState.update { it.copy(playingPreviewUrl = null, playingPreviewTitle = null) }
+    }
+
+    fun fetchPreview(autoPlay: Boolean = false) {
         val targetUrl = _uiState.value.url.trim()
         if (!targetUrl.startsWith("http")) {
             _uiState.update {
@@ -80,10 +107,15 @@ class DownloaderViewModel(application: Application) : AndroidViewModel(applicati
 
         viewModelScope.launch {
             _uiState.update { it.copy(status = DownloadStatus.FetchingInfo) }
-            runCatching { repository.fetchVideoMetadata(targetUrl) }
+            runCatching { repository.fetchVideoMetadata(targetUrl, _uiState.value.selectedQuality) }
                 .onSuccess { info ->
                     _uiState.update {
-                        it.copy(metadata = info, status = DownloadStatus.Idle)
+                        it.copy(
+                            metadata = info,
+                            status = DownloadStatus.Idle,
+                            playingPreviewUrl = if (autoPlay && !info.streamUrl.isNullOrBlank()) info.streamUrl else it.playingPreviewUrl,
+                            playingPreviewTitle = if (autoPlay && !info.streamUrl.isNullOrBlank()) info.title else it.playingPreviewTitle
+                        )
                     }
                 }
                 .onFailure { err ->
@@ -118,9 +150,19 @@ class DownloaderViewModel(application: Application) : AndroidViewModel(applicati
 
         downloadJob?.cancel()
         downloadJob = viewModelScope.launch {
+            // Show progress bar immediately upon clicking Download
             _uiState.update {
-                it.copy(status = DownloadStatus.Downloading(0f, 0L, "ডাউনলোড শুরু হচ্ছে..."))
+                it.copy(
+                    status = DownloadStatus.Downloading(
+                        progress = 0f,
+                        etaSeconds = 0L,
+                        speedText = null,
+                        statusLabel = "লিংক প্রস্তুত হচ্ছে..."
+                    )
+                )
             }
+
+            var highestProgress = 0f
 
             runCatching {
                 repository.downloadVideo(
@@ -128,25 +170,47 @@ class DownloaderViewModel(application: Application) : AndroidViewModel(applicati
                     quality = _uiState.value.selectedQuality,
                     processId = processId
                 ) { progress, eta, line ->
-                    _uiState.update {
-                        it.copy(
+                    val parsedPct = when {
+                        progress in 0f..100f -> progress
+                        else -> percentRegex.find(line)?.groupValues?.getOrNull(1)?.toFloatOrNull() ?: -1f
+                    }
+                    if (parsedPct > highestProgress) {
+                        highestProgress = parsedPct.coerceIn(0f, 100f)
+                    }
+                    val speed = speedRegex.find(line)?.groupValues?.getOrNull(1)
+                    _uiState.update { state ->
+                        val prevSpeed = (state.status as? DownloadStatus.Downloading)?.speedText
+                        state.copy(
                             status = DownloadStatus.Downloading(
-                                progress = progress.coerceIn(0f, 100f),
-                                etaSeconds = eta,
-                                logLine = line
+                                progress = highestProgress,
+                                etaSeconds = if (eta > 0) eta else 0L,
+                                speedText = speed ?: prevSpeed,
+                                statusLabel = if (highestProgress > 0f) "ডাউনলোড হচ্ছে" else "ডাউনলোড শুরু হচ্ছে..."
                             )
                         )
                     }
                 }
             }.onSuccess { files ->
                 activeProcessId = null
-                refreshDownloads()
-                val msg = if (files.isNotEmpty()) {
-                    "সফলভাবে সেভ হয়েছে: ${files.first().name}"
-                } else {
-                    "ডাউনলোড সম্পন্ন হয়েছে! Downloads/VisionDownload ফোল্ডার দেখুন।"
+                // Always display 100% cleanly before showing final completion message
+                _uiState.update {
+                    it.copy(
+                        status = DownloadStatus.Downloading(
+                            progress = 100f,
+                            etaSeconds = 0L,
+                            speedText = null,
+                            statusLabel = "ডাউনলোড সম্পন্ন"
+                        )
+                    )
                 }
-                _uiState.update { it.copy(status = DownloadStatus.Success(msg)) }
+                refreshDownloads()
+                delay(600)
+                val msg = if (files.isNotEmpty()) {
+                    "১০০% সম্পন্ন! সেভ হয়েছে: ${files.first().name}"
+                } else {
+                    "১০০% ডাউনলোড সম্পন্ন! Downloads/VisionDownload ফোল্ডার দেখুন।"
+                }
+                _uiState.update { it.copy(status = DownloadStatus.Success(msg, 100f)) }
             }.onFailure { err ->
                 activeProcessId = null
                 _uiState.update {
@@ -165,6 +229,13 @@ class DownloaderViewModel(application: Application) : AndroidViewModel(applicati
         downloadJob?.cancel()
         activeProcessId = null
         _uiState.update { it.copy(status = DownloadStatus.Idle) }
+    }
+
+    fun deleteDownload(item: DownloadedItem) {
+        viewModelScope.launch {
+            repository.deleteFile(item.file)
+            refreshDownloads()
+        }
     }
 
     fun updateEngine() {
