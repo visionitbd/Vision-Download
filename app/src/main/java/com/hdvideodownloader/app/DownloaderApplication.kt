@@ -3,7 +3,6 @@ package com.hdvideodownloader.app
 import android.app.Application
 import android.util.Log
 import com.yausername.youtubedl_android.YoutubeDL
-import com.yausername.youtubedl_android.YoutubeDLException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -32,9 +31,9 @@ class DownloaderApplication : Application() {
                 YoutubeDL.getInstance().init(this@DownloaderApplication)
                 _engineReady.value = true
                 Log.i(TAG, "YoutubeDL initialized successfully")
-            } catch (e: YoutubeDLException) {
+            } catch (e: Throwable) {
                 Log.e(TAG, "Failed to initialize youtubedl-android", e)
-                _initError.value = e.localizedMessage ?: "ইঞ্জিন চালু করা যায়নি"
+                _initError.value = e.localizedMessage ?: e.javaClass.simpleName
             }
         }
     }

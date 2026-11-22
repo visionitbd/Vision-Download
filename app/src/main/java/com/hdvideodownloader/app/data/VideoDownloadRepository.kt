@@ -83,18 +83,20 @@ class VideoDownloadRepository(private val context: Context) {
     }
 
     suspend fun listDownloadedFiles(): List<DownloadedItem> = withContext(Dispatchers.IO) {
-        val dir = getOutputDirectory()
-        dir.listFiles()
-            ?.filter { it.isFile && !it.name.endsWith(".part") && !it.name.endsWith(".ytdl") }
-            ?.sortedByDescending { it.lastModified() }
-            ?.map { file ->
-                DownloadedItem(
-                    file = file,
-                    name = file.name,
-                    sizeBytes = file.length(),
-                    lastModified = file.lastModified()
-                )
-            }
-            ?: emptyList()
+        runCatching {
+            val dir = getOutputDirectory()
+            dir.listFiles()
+                ?.filter { it.isFile && !it.name.endsWith(".part") && !it.name.endsWith(".ytdl") }
+                ?.sortedByDescending { it.lastModified() }
+                ?.map { file ->
+                    DownloadedItem(
+                        file = file,
+                        name = file.name,
+                        sizeBytes = file.length(),
+                        lastModified = file.lastModified()
+                    )
+                }
+                ?: emptyList()
+        }.getOrDefault(emptyList())
     }
 }

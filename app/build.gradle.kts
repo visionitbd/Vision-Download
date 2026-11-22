@@ -15,7 +15,7 @@ android {
         versionCode = 1
         versionName = "1.0.0"
 
-        // Modern Android phones only (keeps APK under ~30 MB)
+        // Modern Android phones only (keeps APK compact ~25-29 MB)
         ndk {
             abiFilters += listOf("arm64-v8a")
         }
@@ -23,8 +23,8 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = true
-            isShrinkResources = true
+            isMinifyEnabled = false
+            isShrinkResources = false
             signingConfig = signingConfigs.getByName("debug")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
@@ -47,6 +47,9 @@ android {
     }
 
     packaging {
+        jniLibs {
+            useLegacyPackaging = true
+        }
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
@@ -72,7 +75,7 @@ dependencies {
     // Image loading for video thumbnails
     implementation("io.coil-kt:coil-compose:2.7.0")
 
-    // Lightweight yt-dlp wrapper (without FFmpeg to keep APK under 30 MB)
+    // Lightweight yt-dlp wrapper (without FFmpeg to keep APK compact)
     val youtubedlAndroid = "0.18.1"
     implementation("io.github.junkfood02.youtubedl-android:library:$youtubedlAndroid")
 }
